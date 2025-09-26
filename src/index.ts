@@ -61,12 +61,12 @@ async function contactNode(state: ChatState): Promise<ChatState> {
   const last = state.messages[state.messages.length - 1];
 
   const resp = await model.invoke([
-    new SystemMessage(`Kamu adalah asisten kontak. 
-  Gunakan data kontak yang diberikan untuk menjawab pertanyaan user.
-  Jika user bertanya nomor seseorang, cari di daftar. 
-  Jika tidak ditemukan, jawab dengan sopan "kontak tidak ditemukan". 
-  Jika user minta menambahkan kontak, katakan bahwa fungsi tambah belum tersedia 
-  (kecuali kalau nanti ditambahkan update DB).
+    new SystemMessage(`You are a contact assistant.
+    Use the contact information provided to answer user questions.
+    If a user asks for someone's number, look it up in the list.
+    If you can't find it, politely reply "contact not found."
+    If a user asks to add a contact, explain that the add function isn't available yet.
+    (Unless it's added later in a database update).
       
   Daftar kontak:
   ${JSON.stringify(contacts, null, 2)}
