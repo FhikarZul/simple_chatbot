@@ -8,24 +8,29 @@ import {
   Annotation,
 } from "@langchain/langgraph";
 import { ChatOpenAI } from "@langchain/openai";
-import {
-  HumanMessage,
-  SystemMessage,
-  BaseMessage,
-} from "@langchain/core/messages";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import readline from "readline";
+
+type Contact = { name: string; phone: string; city: string };
+
+let contacts: Contact[] = [
+  { name: "Andi", phone: "08123456789", city: "Makassar" },
+  { name: "Budi", phone: "08987654321", city: "Bone" },
+];
 
 // 1. ChatAnnotation dengan field intent
 const ChatAnnotation = Annotation.Root({
   ...MessagesAnnotation.spec,
-  intent: Annotation<"emotional" | "logical" | "general" | undefined>(),
+  intent: Annotation<
+    "emotional" | "logical" | "general" | "contact_request" | undefined
+  >(),
 });
 
 type ChatState = typeof ChatAnnotation.State;
 
 // 2. Model LLM
 const model = new ChatOpenAI({
-  model: "gpt-4o-mini", // bisa juga "gpt-4o"
+  model: "gpt-4o",
   temperature: 0,
 });
 
@@ -34,7 +39,7 @@ async function classifierNode(state: ChatState): Promise<ChatState> {
   const last = state.messages[state.messages.length - 1];
 
   const schema = z.object({
-    intent: z.enum(["emotional", "logical", "general"]),
+    intent: z.enum(["emotional", "logical", "general", "contact_request"]),
   });
 
   const resp = await model.withStructuredOutput(schema).invoke([
@@ -42,12 +47,34 @@ async function classifierNode(state: ChatState): Promise<ChatState> {
       `Classify the user message as either:
        - 'emotional': for emotional support or feelings
        - 'logical': for facts, information, or general queries not covered by the above
-       - 'general': for greetings (e.g., "hello", "hi") or simple small talk`
+       - 'general': for greetings (e.g., "hello", "hi") or simple small talk
+       - 'contact_request': if the user asks for contact information, phone number, contact list
+       `
     ),
     new HumanMessage(`Message: "${last.content}"`),
   ]);
 
   return { ...state, intent: resp.intent };
+}
+
+async function contactNode(state: ChatState): Promise<ChatState> {
+  const last = state.messages[state.messages.length - 1];
+
+  const resp = await model.invoke([
+    new SystemMessage(`Kamu adalah asisten kontak. 
+  Gunakan data kontak yang diberikan untuk menjawab pertanyaan user.
+  Jika user bertanya nomor seseorang, cari di daftar. 
+  Jika tidak ditemukan, jawab dengan sopan "kontak tidak ditemukan". 
+  Jika user minta menambahkan kontak, katakan bahwa fungsi tambah belum tersedia 
+  (kecuali kalau nanti ditambahkan update DB).
+      
+  Daftar kontak:
+  ${JSON.stringify(contacts, null, 2)}
+      `),
+    new HumanMessage(`Pesan user: "${last.content}"`),
+  ]);
+
+  return { ...state, messages: [...state.messages, resp] };
 }
 
 // 4. Logical Node
@@ -102,15 +129,20 @@ const workflow = new StateGraph(ChatAnnotation)
   .addNode("logical", logicalNode)
   .addNode("emotional", emotionalNode)
   .addNode("general", generalNode)
+  .addNode("contact_request", contactNode)
+
   .addEdge(START, "classifier")
   .addConditionalEdges("classifier", (state) => state.intent ?? "logical", {
     logical: "logical",
     emotional: "emotional",
     general: "general",
+    contact_request: "contact_request",
   })
+
   .addEdge("logical", END)
   .addEdge("emotional", END)
-  .addEdge("general", END);
+  .addEdge("general", END)
+  .addEdge("contact_request", END);
 
 const app = workflow.compile();
 
